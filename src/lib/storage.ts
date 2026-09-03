@@ -1,4 +1,4 @@
-import type { Category, PlannerData } from '../types';
+import type { AccountTransaction, Category, PlannerData } from '../types';
 import { todayIso } from './format';
 
 export const storageKey = 'hamrah-planner-data-v2';
@@ -7,6 +7,7 @@ export const legacyStorageKey = 'hamrah-planner-data-v1';
 export const kinds = ['روزانه', 'هفتگی', 'ماهانه', 'سالانه'] as const;
 export const priorities = ['زیاد', 'متوسط', 'کم'] as const;
 export const categoryColors = ['#2f8b57', '#3b82c4', '#d68a30', '#a8578d', '#7963c9', '#ca5959'];
+export const reminderOptions = [0, 5, 10, 15, 30, 60] as const;
 
 export const defaultCategories: Category[] = [
   { id: 'cat-health', title: 'سلامت', area: 'planner', parentId: null, color: '#2f8b57' },
@@ -27,11 +28,11 @@ export const defaultData: PlannerData = {
     { id: 'task-2', title: 'تماس با همکاران', done: false, createdAt: todayIso() },
   ],
   plans: [
-    { id: 'plan-1', title: 'پیاده‌روی صبحگاهی', kind: 'روزانه', date: todayIso(), time: '08:00', endTime: '10:00', done: false, priority: 'زیاد', categoryId: 'cat-walk' },
+    { id: 'plan-1', title: 'پیاده‌روی صبحگاهی', kind: 'روزانه', date: todayIso(), time: '08:00', endTime: '10:00', done: false, priority: 'زیاد', categoryId: 'cat-walk', reminderMinutes: 10 },
     { id: 'plan-2', title: 'مرور اهداف هفته', kind: 'هفتگی', date: todayIso(), time: '18:00', endTime: '', done: false, priority: 'متوسط', categoryId: 'cat-work' },
   ],
   goals: [
-    { id: 'goal-1', title: 'خواندن ۱۲ کتاب در سال', note: 'هر ماه یک کتاب', done: false },
+    { id: 'goal-1', title: 'خواندن ۱۲ کتاب در سال', note: 'هر ماه یک کتاب', done: false, periodKind: 'سالانه', periodDate: todayIso() },
     { id: 'goal-2', title: 'ورزش منظم', note: 'حداقل سه روز در هفته', done: false },
   ],
   shopping: [
@@ -40,6 +41,7 @@ export const defaultData: PlannerData = {
   ],
   categories: defaultCategories,
   accounts: [{ id: 'account-1', name: 'حساب اصلی', initialBalance: 5000000 }],
+  transactions: [],
   font: 'vazirmatn',
 };
 
@@ -57,6 +59,7 @@ export function getStoredData(): PlannerData {
         priority: plan.priority ?? 'متوسط',
         categoryId: plan.categoryId ?? 'cat-work',
       })),
+      goals: saved.goals ?? defaultData.goals,
       shopping: (saved.shopping ?? defaultData.shopping).map((item) => ({
         ...item,
         price: item.price ?? 0,
@@ -66,6 +69,7 @@ export function getStoredData(): PlannerData {
       })),
       categories: saved.categories?.length ? saved.categories : defaultCategories,
       accounts: saved.accounts?.length ? saved.accounts : defaultData.accounts,
+      transactions: saved.transactions ?? [],
       font: saved.font ?? 'vazirmatn',
     };
   } catch {
@@ -92,7 +96,7 @@ export function removeCategoryFromData(data: PlannerData, categoryId: string): P
   };
 }
 
-/** Removing a bank account reassigns its shopping items to the first remaining account (if any). */
+/** Removing a bank account reassigns its shopping items to the first remaining account and drops its own transactions. */
 export function removeAccountFromData(data: PlannerData, accountId: string): PlannerData {
   const remainingAccounts = data.accounts.filter((account) => account.id !== accountId);
   const fallback = remainingAccounts[0]?.id ?? '';
@@ -100,5 +104,25 @@ export function removeAccountFromData(data: PlannerData, accountId: string): Pla
     ...data,
     accounts: remainingAccounts,
     shopping: data.shopping.map((item) => (item.accountId === accountId ? { ...item, accountId: fallback } : item)),
+    transactions: data.transactions.filter((transaction) => transaction.accountId !== accountId),
   };
+}
+
+/** Current balance = initial balance + deposits - withdrawals - money spent on bought shopping items. */
+export function accountBalance(data: PlannerData, accountId: string) {
+  const account = data.accounts.find((item) => item.id === accountId);
+  const spent = data.shopping
+    .filter((item) => item.bought && item.accountId === accountId)
+    .reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const deposits = data.transactions
+    .filter((transaction) => transaction.accountId === accountId && transaction.type === 'واریز')
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  const withdrawals = data.transactions
+    .filter((transaction) => transaction.accountId === accountId && transaction.type === 'برداشت')
+    .reduce((sum, transaction) => sum + transaction.amount, 0);
+  return (account?.initialBalance ?? 0) + deposits - withdrawals - spent;
+}
+
+export function accountTransactionsSorted(data: PlannerData, accountId: string): AccountTransaction[] {
+  return data.transactions.filter((transaction) => transaction.accountId === accountId).sort((a, b) => (a.date < b.date ? 1 : -1));
 }

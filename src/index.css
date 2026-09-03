@@ -16,8 +16,8 @@ button { cursor: pointer; }
 input[type='time'], input[type='number'] { direction: ltr; text-align: right; }
 
 .font-vazirmatn { font-family: 'Vazirmatn', sans-serif; }
-.font-nazanin { font-family: 'B Nazanin', 'Nazanin', 'Vazirmatn', serif; }
-.font-titr { font-family: 'B Titr', 'Titr', 'Vazirmatn', sans-serif; }
+.font-nazanin { font-family: 'Noto Naskh Arabic', 'Vazirmatn', serif; }
+.font-titr { font-family: 'Noto Kufi Arabic', 'Vazirmatn', sans-serif; }
 
 .planner-card {
   border: 1px solid #dce6de;

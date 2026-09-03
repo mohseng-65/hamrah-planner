@@ -61,7 +61,7 @@ export function DailyPlanner({
                 className={`timeline-bar ${plan.done ? 'opacity-50 line-through' : ''}`}
                 style={{
                   top: `calc(${(start / 1440) * 100}% + 2px)`,
-                  height: `calc(${Math.max(30, ((end - start) / 1440) * 100)}% - 4px)`,
+                  height: `calc(${((end - start) / 1440) * 100}% - 4px)`,
                   background: `${category?.color ?? '#2f8b57'}30`,
                   borderColor: category?.color ?? '#2f8b57',
                   color: '#263b2e',

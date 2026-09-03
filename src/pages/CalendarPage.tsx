@@ -21,7 +21,9 @@ export function CalendarPage({
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(todayIso());
 
   const calendar = useMemo(() => createMonth(calendarAnchor), [calendarAnchor]);
-  const selectedPlans = data.plans.filter((plan) => plan.date === selectedCalendarDate);
+  // Only داily plans have a real calendar-day meaning; weekly/monthly/yearly plans live on the Planner page instead.
+  const dailyPlans = useMemo(() => data.plans.filter((plan) => plan.kind === 'روزانه'), [data.plans]);
+  const selectedPlans = dailyPlans.filter((plan) => plan.date === selectedCalendarDate);
 
   return (
     <section data-testid="calendar-page" className="space-y-5">
@@ -53,7 +55,7 @@ export function CalendarPage({
             ))}
             {calendar.calendarDays.map((date) => {
               const iso = toIso(date);
-              const scheduled = data.plans.filter((plan) => plan.date === iso);
+              const scheduled = dailyPlans.filter((plan) => plan.date === iso);
               const active = iso === selectedCalendarDate;
               const today = iso === todayIso();
               return (

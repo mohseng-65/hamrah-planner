@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Check, Download, ShoppingCart, Trash2, WalletCards } from 'lucide-react';
-import type { PlannerData, ReportPreset } from '../types';
+import { ArrowDownCircle, ArrowUpCircle, Check, Download, ShoppingCart, Trash2, WalletCards } from 'lucide-react';
+import type { PlannerData, ReportPreset, TransactionType } from '../types';
 import { digits, formatMoney, formatShort, todayIso, toIso, uid } from '../lib/format';
 import { jalaliMonthStart, jalaliYearStart } from '../lib/jalali';
 import { computeShoppingReport } from '../lib/report';
+import { accountBalance, accountTransactionsSorted } from '../lib/storage';
 import { EmptyState, PageHeading, StatCard } from '../components/common';
 import { JalaliDatePicker } from '../components/JalaliDatePicker';
 
@@ -42,10 +43,13 @@ export function ShoppingPage({
   const [shoppingAccount, setShoppingAccount] = useState(data.accounts[0]?.id ?? '');
   const [shoppingDate, setShoppingDate] = useState(todayIso());
   const [accountName, setAccountName] = useState('');
-  const [accountBalance, setAccountBalance] = useState('');
+  const [newAccountBalance, setNewAccountBalance] = useState('');
+  const [transactionType, setTransactionType] = useState<TransactionType>('برداشت');
+  const [transactionAccount, setTransactionAccount] = useState(data.accounts[0]?.id ?? '');
+  const [transactionAmount, setTransactionAmount] = useState('');
+  const [transactionNote, setTransactionNote] = useState('');
 
   const shoppingCategories = data.categories.filter((category) => category.area === 'shopping');
-  const accountSpent = (accountId: string) => data.shopping.filter((item) => item.bought && item.accountId === accountId).reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const addShopping = () => {
     const title = shoppingTitle.trim();
@@ -61,15 +65,31 @@ export function ShoppingPage({
 
   const addAccount = () => {
     const name = accountName.trim();
-    const balance = Number(accountBalance);
+    const balance = Number(newAccountBalance);
     if (!name) return notify('نام حساب را بنویسید.');
     if (!Number.isFinite(balance) || balance < 0) return notify('موجودی اولیه را درست وارد کنید.');
     const account = { id: uid(), name, initialBalance: balance };
     update({ accounts: [...data.accounts, account] });
     setShoppingAccount(account.id);
+    setTransactionAccount(account.id);
     setAccountName('');
-    setAccountBalance('');
+    setNewAccountBalance('');
     notify('حساب جدید اضافه شد.');
+  };
+
+  const addTransaction = () => {
+    const amount = Number(transactionAmount);
+    if (!transactionAccount) return notify('ابتدا یک حساب بانکی اضافه کنید.');
+    if (!Number.isFinite(amount) || amount <= 0) return notify('مبلغ تراکنش را درست وارد کنید.');
+    update({
+      transactions: [
+        { id: uid(), accountId: transactionAccount, type: transactionType, amount, date: todayIso(), note: transactionNote.trim() },
+        ...data.transactions,
+      ],
+    });
+    setTransactionAmount('');
+    setTransactionNote('');
+    notify(transactionType === 'واریز' ? 'واریز ثبت شد و موجودی حساب به‌روز شد.' : 'برداشت ثبت شد و موجودی حساب به‌روز شد.');
   };
 
   const { total: reportTotal, dates: reportDates, totalsByCategory } = computeShoppingReport(data, reportPreset, reportFrom, reportTo);
@@ -123,7 +143,49 @@ export function ShoppingPage({
               افزودن به لیست خرید
             </button>
           </div>
+
+          <div className="mt-7 border-t border-[#e6ece7] pt-5">
+            <h2 className="text-lg font-black">واریز / برداشت از حساب</h2>
+            <p className="mt-1 text-sm text-[#748278]">این تراکنش‌ها مستقل از فهرست خریدند و بلافاصله موجودی حساب را تغییر می‌دهند.</p>
+            <div className="mt-4 space-y-3">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  data-testid="transaction-type-withdraw"
+                  onClick={() => setTransactionType('برداشت')}
+                  className={`flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-bold ${transactionType === 'برداشت' ? 'bg-[#a34f4f] text-white' : 'bg-[#f3ecec] text-[#7a4a4a]'}`}
+                >
+                  <ArrowDownCircle size={16} />
+                  برداشت
+                </button>
+                <button
+                  type="button"
+                  data-testid="transaction-type-deposit"
+                  onClick={() => setTransactionType('واریز')}
+                  className={`flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-bold ${transactionType === 'واریز' ? 'bg-[#0e6038] text-white' : 'bg-[#edf3ee] text-[#53695c]'}`}
+                >
+                  <ArrowUpCircle size={16} />
+                  واریز
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <select data-testid="transaction-account-select" value={transactionAccount} onChange={(event) => setTransactionAccount(event.target.value)} className="field">
+                  {data.accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+                <input data-testid="transaction-amount-input" type="number" min="0" value={transactionAmount} onChange={(event) => setTransactionAmount(event.target.value)} placeholder="مبلغ (تومان)" className="field" />
+              </div>
+              <input data-testid="transaction-note-input" value={transactionNote} onChange={(event) => setTransactionNote(event.target.value)} placeholder="توضیح (اختیاری)" className="field" />
+              <button data-testid="add-transaction-button" onClick={addTransaction} className="secondary-button w-full">
+                ثبت تراکنش
+              </button>
+            </div>
+          </div>
         </section>
+
         <section className="planner-card p-5 sm:p-6">
           <div className="flex items-center gap-2">
             <WalletCards className="text-[#177043]" size={22} />
@@ -131,28 +193,43 @@ export function ShoppingPage({
           </div>
           <div className="mt-4 space-y-2">
             {data.accounts.map((account) => (
-              <div key={account.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#f2f6f2] px-3 py-3">
-                <div className="min-w-0">
-                  <b className="block text-sm">{account.name}</b>
-                  <span className="text-xs text-[#718077]">موجودی اولیه: {formatMoney(account.initialBalance)}</span>
+              <div key={account.id} className="rounded-xl bg-[#f2f6f2] px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <b className="block text-sm">{account.name}</b>
+                    <span className="text-xs text-[#718077]">موجودی اولیه: {formatMoney(account.initialBalance)}</span>
+                  </div>
+                  <b data-testid={`account-balance-${account.id}`} className="shrink-0 text-sm text-[#16693c]">
+                    {formatMoney(accountBalance(data, account.id))}
+                  </b>
+                  <button data-testid={`delete-account-${account.id}`} onClick={() => onDeleteAccount(account.id)} className="shrink-0 text-xs text-[#a34f4f]">
+                    حذف
+                  </button>
                 </div>
-                <b data-testid={`account-balance-${account.id}`} className="shrink-0 text-sm text-[#16693c]">
-                  {formatMoney(account.initialBalance - accountSpent(account.id))}
-                </b>
-                <button
-                  data-testid={`delete-account-${account.id}`}
-                  onClick={() => onDeleteAccount(account.id)}
-                  className="shrink-0 text-xs text-[#a34f4f]"
-                >
-                  حذف
-                </button>
+                {accountTransactionsSorted(data, account.id).length > 0 && (
+                  <div className="mt-2 space-y-1 border-t border-white pt-2">
+                    {accountTransactionsSorted(data, account.id)
+                      .slice(0, 3)
+                      .map((transaction) => (
+                        <div key={transaction.id} className="flex items-center justify-between text-[11px] text-[#5c6d61]">
+                          <span>
+                            {transaction.type} {transaction.note ? `— ${transaction.note}` : ''}
+                          </span>
+                          <span className={transaction.type === 'واریز' ? 'font-bold text-[#177043]' : 'font-bold text-[#a34f4f]'}>
+                            {transaction.type === 'واریز' ? '+' : '−'}
+                            {formatMoney(transaction.amount)}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
             ))}
             {!data.accounts.length && <EmptyState text="هنوز حساب بانکی ثبت نشده است." />}
           </div>
           <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
             <input data-testid="account-name-input" value={accountName} onChange={(event) => setAccountName(event.target.value)} placeholder="نام حساب" className="field" />
-            <input data-testid="account-balance-input" type="number" min="0" value={accountBalance} onChange={(event) => setAccountBalance(event.target.value)} placeholder="موجودی اولیه" className="field" />
+            <input data-testid="account-balance-input" type="number" min="0" value={newAccountBalance} onChange={(event) => setNewAccountBalance(event.target.value)} placeholder="موجودی اولیه" className="field" />
             <button data-testid="add-account-button" onClick={addAccount} className="secondary-button">
               افزودن
             </button>

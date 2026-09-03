@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
-  BarChart3, CalendarDays, Download, ListChecks, Menu, NotebookPen, Settings2, ShoppingCart, Target, X,
+  BarChart3, Bell, CalendarDays, Download, ListChecks, Menu, NotebookPen, Settings2, ShoppingCart, Target, X,
 } from 'lucide-react';
 import type { Category, Page, PlanKind, PlannerData, PrintMode, ReportPreset } from './types';
-import { todayIso } from './lib/format';
+import { minutesOf, todayIso } from './lib/format';
 import { getStoredData, removeAccountFromData, removeCategoryFromData, storageKey } from './lib/storage';
 import { PrintReport } from './components/PrintReport';
 import { TodayPage } from './pages/TodayPage';
@@ -13,6 +14,7 @@ import { CalendarPage } from './pages/CalendarPage';
 import { ProgressPage } from './pages/ProgressPage';
 import { GoalsPage } from './pages/GoalsPage';
 import { ShoppingPage } from './pages/ShoppingPage';
+import { RemindersPage } from './pages/RemindersPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 const pages: { id: Page; label: string; icon: typeof NotebookPen }[] = [
@@ -23,6 +25,7 @@ const pages: { id: Page; label: string; icon: typeof NotebookPen }[] = [
   { id: 'progress', label: 'پیشرفت', icon: BarChart3 },
   { id: 'goals', label: 'اهداف', icon: Target },
   { id: 'shopping', label: 'خرید و هزینه', icon: ShoppingCart },
+  { id: 'reminders', label: 'یادآوری‌ها', icon: Bell },
   { id: 'settings', label: 'تنظیمات', icon: Settings2 },
 ];
 
@@ -32,6 +35,9 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [printMode, setPrintMode] = useState<PrintMode>('planner');
+  const [notificationsEnabled, setNotificationsEnabled] = useState(
+    () => typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted',
+  );
 
   // Shared between the Planner and Calendar pages, so "add plan for this day" can jump across pages.
   const [planDate, setPlanDate] = useState(todayIso());
@@ -43,9 +49,38 @@ function App() {
   const [reportFrom, setReportFrom] = useState(todayIso());
   const [reportTo, setReportTo] = useState(todayIso());
 
+  const firedReminders = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(data));
   }, [data]);
+
+  // Checks every 20s for داily plans whose reminder time has arrived; fires a browser
+  // notification (if allowed) and always falls back to the in-app status banner.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = new Date();
+      const nowIso = todayIso();
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      data.plans
+        .filter((plan) => plan.kind === 'روزانه' && !plan.done && plan.date === nowIso && (plan.reminderMinutes ?? 0) > 0)
+        .forEach((plan) => {
+          const fireAt = minutesOf(plan.time) - (plan.reminderMinutes ?? 0);
+          const key = `${plan.id}-${nowIso}`;
+          if (nowMinutes >= fireAt && nowMinutes < fireAt + 1 && !firedReminders.current.has(key)) {
+            firedReminders.current.add(key);
+            const text = `یادآوری: «${plan.title}» ساعت ${plan.time}`;
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              new Notification('همراه برنامه‌ریز', { body: text });
+            }
+            notify(text);
+          }
+        });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, 20000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.plans]);
 
   const update = (patch: Partial<PlannerData>) => setData((current) => ({ ...current, ...patch }));
   const notify = (text: string) => {
@@ -64,11 +99,23 @@ function App() {
     return category ? `${parent ? `${parent.title} / ` : ''}${category.title}` : 'بدون دسته';
   };
   const togglePlan = (id: string) => update({ plans: data.plans.map((plan) => (plan.id === id ? { ...plan, done: !plan.done } : plan)) });
+
+  // window.print() must run synchronously inside the click handler, or some browsers drop the
+  // call for losing "user activation". flushSync forces the printMode change into the DOM first
+  // so the print-only report reflects the right mode without needing an async delay.
   const exportPdf = (mode: PrintMode) => {
-    setPrintMode(mode);
+    flushSync(() => setPrintMode(mode));
     notify('پنجرهٔ چاپ باز می‌شود؛ گزینهٔ «ذخیره به‌صورت PDF» را انتخاب کنید.');
-    window.setTimeout(() => window.print(), 180);
+    window.print();
   };
+
+  const enableNotifications = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return notify('مرورگر شما از اعلان پشتیبانی نمی‌کند.');
+    const permission = await Notification.requestPermission();
+    setNotificationsEnabled(permission === 'granted');
+    notify(permission === 'granted' ? 'اعلان یادآوری‌ها فعال شد.' : 'اجازه‌ی نمایش اعلان داده نشد.');
+  };
+
   const switchPlannerKind = (kind: PlanKind) => {
     setPlannerFilter(kind);
     setPlanKind(kind);
@@ -189,6 +236,9 @@ function App() {
             onExportPdf={() => exportPdf('shopping')}
             onDeleteAccount={deleteAccount}
           />
+        )}
+        {page === 'reminders' && (
+          <RemindersPage data={data} categoryById={categoryById} notificationsEnabled={notificationsEnabled} onEnableNotifications={enableNotifications} />
         )}
         {page === 'settings' && <SettingsPage data={data} update={update} notify={notify} categoryName={categoryName} onDeleteCategory={deleteCategory} />}
 
